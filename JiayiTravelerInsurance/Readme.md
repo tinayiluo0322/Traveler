@@ -1,9 +1,9 @@
 ### Tried Model
-Decision tree
-Random Forest
+1. Decision tree
+2. Random Forest
 
 ### Next Step
-zero inflated poisson model
-zero inflated negative binomial model
-CatBoost
-XGBoost
+1. zero inflated poisson model
+2. zero inflated negative binomial model
+3. CatBoost
+4. XGBoost
