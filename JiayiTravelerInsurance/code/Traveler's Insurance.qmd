@@ -1,0 +1,737 @@
+---
+title: "Traveler's Insurance"
+author: "Tina, Jiayi, Jeremy"
+format: html
+editor: visual
+---
+
+### Overview
+
+For this case competition, your group's task is to provide a method for predicting the claim cost for each policy and to convince your business partner that your predictions will work well.
+
+The InsNova data set is based on one-year vehicle insurance policies from 2004 to 2005. There are 45,239 policies, of which around 6.8% had at least one claim. The data is split to two parts: training data and validation data. In the validation and holdout data, `claimcst0` (claim cost), `clm` (claim indicator) and `numclaims` (claim counts) are omitted. You can build your model on the training data. In the end, use your best model to score the validation and holdout data. We will evaluate your model based on your validation and holdout data prediction.
+
+Omitted Variable:
+
+-   `clm` - Indicator of claim (0=no, 1=yes)
+
+-   `numclaims` - The number of claims
+
+-   `id` - Policy key
+
+Outcome Variable:
+
+`claimcst0` - Claim Cost
+
+Predictor Variable:
+
+-   `veh_value` - Market value of the vehicle in \$10,000's
+
+-   `exposure` - The basic unit of risk underlying an insurance premium
+
+-   `veh_body` - Type of vehicles
+
+-   `veh_age` - Age of vehicles (1=youngest, 4=oldest)
+
+-   `gender` - Gender of driver
+
+-   `area` - Driving area of residence
+
+-   `agecat` - Driver's age category from young (1) to old (6)Driver's age category from young (1) to old (6)
+
+-   `engine_type` - Engine type of vehicles
+
+-   `max_power` - Max horsepower of vehicles
+
+-   `driving_history_score` - Driving score based on past driving history (higher the better)
+
+-   `veh_color` - Color of vehicles
+
+-   `marital_status` - Marital Status of driver (M = married, S = single)
+
+-   `e_bill` - Indicator for paperless billing (0 = no, 1 = yes)
+
+-   `time_of_week_driven` - Most frequent driving date of the week (weekdays vs weekend)
+
+-   `time_driven` - Most frequent driving time of the day
+
+-   `trm_len` - term length (6-month vs 12-month policies)
+
+-   `credit_score` - Credit score
+
+-   `high_education_ind` - indicator for higher education
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+```
+
+```{r}
+nova <- read_csv("InsNova_data_2023_train.csv")
+view(nova)
+glimpse(nova)
+```
+
+```{r}
+plot_bar(nova)
+```
+
+```{r}
+plot_histogram(nova)
+```
+
+factor the variables **`agecat`**, **`veh_age`**, and **`numclaims`** in the **`nova`** data frame
+
+```{r}
+# Factor the variables
+nova$agecat <- as.factor(nova$agecat)
+nova$veh_age <- as.factor(nova$veh_age)
+```
+
+```{r}
+# Structure of the data - Type = 1
+ExpData(data=nova, type=1)
+
+# Structure of the data - Type = 2
+ExpData(data=nova,type=2)
+```
+
+No NAs in the dataframe
+
+```{r}
+na_counts <- sapply(nova, function(x) sum(is.na(x)))
+print(na_counts)
+na_counts_with_na <- na_counts[na_counts > 0]
+print(na_counts_with_na)
+```
+
+### EDA-Omitted Variables
+
+Omitted Variable:
+
+-   `clm` - Indicator of claim (0=no, 1=yes)
+
+-   `numclaims` - The number of claims
+
+-   `id` - Policy key
+
+1.  Indicator of claims (0=no, 1=yes)
+
+no=0 claim=21077
+
+yes=1542 =((1 claim = 1439 )+ (2 claim = 94) + (3 claim = 9))
+
+```{r}
+## Create a table of counts for claims and no claim
+count_claim <- as.data.frame(table(nova$clm))
+count_claim
+# Bar chart to visualize the distribution of claims
+ggplot(nova, aes(x = as.factor(clm))) + 
+  geom_bar(aes(y = ..count..)) + 
+  ggtitle("Distribution of Claims") +
+  xlab("Claim (0 = No, 1 = Yes)") +
+  ylab("Count")
+
+# Calculate the percentage of claims and non-claims
+table(nova$clm) / nrow(nova) * 100
+```
+
+2.  The number of claims
+
+```{r}
+# create a table of counts for each number of claims
+count_number_claim <- as.data.frame(table(nova$numclaims))
+
+count_number_claim
+# Histogram for numclaims
+ggplot(nova, aes(x = numclaims)) + 
+  geom_histogram(binwidth = 1, fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Number of Claims") +
+  xlab("Number of Claims") +
+  ylab("Count")
+```
+
+3.  Policy Keys Total 22619 Duplicate 0
+
+```{r}
+summary(nova$id)
+```
+
+```{r}
+# Find the duplicate policy keys
+duplicates <- nova[duplicated(nova$id) | duplicated(nova$id, fromLast = TRUE), ]
+
+# Print the number of duplicate rows
+cat("Number of duplicate policy keys:", nrow(duplicates), "\n")
+
+# If there are duplicates, print them for investigation
+if(nrow(duplicates) > 0) {
+  cat("Here are the duplicate policy keys:\n")
+  print(duplicates)
+}
+
+```
+
+### EDA-Outcome Variable
+
+claim costs
+
+When claim number=0, claim cost=0
+
+```{r}
+summary(nova$claimcst0)
+
+#count zero claim cost
+count_zero_claim_cost <- sum(nova$claimcst0 == 0)
+
+cat("Number of rows where claim cost is 0:", count_zero_claim_cost, "\n")
+
+# Histogram for claimcst0
+ggplot(nova, aes(x = claimcst0)) + 
+  geom_histogram(fill = "#69b3a2", color = "black", alpha = 0.7, bins=30) + 
+  ggtitle("Distribution of Claim Costs") +
+  xlab("Claim Costs") +
+  ylab("Count") +
+  theme_minimal()
+
+# Boxplot for claimcst0 to detect outliers
+ggplot(nova, aes(y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Boxplot of Claim Costs") +
+  ylab("Claim Costs") +
+  theme_minimal()
+```
+
+relationship between **`claimcst0`** (Claim Cost) and **`numclaims`** (Number of Claims)
+
+```{r}
+# Scatterplot of claimcst0 vs numclaims
+ggplot(nova, aes(x = numclaims, y = claimcst0)) + 
+  geom_point(alpha = 0.5, color = "#69b3a2") +
+  ggtitle("Relationship between Claim Cost and Number of Claims") +
+  xlab("Number of Claims") +
+  ylab("Claim Cost") +
+  theme_minimal() +
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+
+```
+
+relationship between **`claimcst0`** (Claim Cost) and **`numclaims`** (Number of Claims) Filter out rows where **`numclaims`** is equal to 0.
+
+```{r}
+# Filter out rows where numclaims = 0
+filtered_nova <- nova[nova$numclaims != 0, ]
+
+# Scatterplot of claimcst0 vs numclaims (excluding numclaims = 0)
+ggplot(filtered_nova, aes(x = numclaims, y = claimcst0)) + 
+  geom_point(alpha = 0.5, color = "#69b3a2") +
+  ggtitle("Relationship between Claim Cost and Number of Claims (Excluding numclaims = 0)") +
+  xlab("Number of Claims") +
+  ylab("Claim Cost") +
+  theme_minimal() +
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+```
+
+relationship between **`claimcst0`** (Claim Cost) and **`clm`** (Indicator of Claims, binary)
+
+```{r}
+# Boxplot of claimcst0 vs clm
+ggplot(nova, aes(x = as.factor(clm), y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) +
+  ggtitle("Relationship between Claim Cost and Claim Indicator") +
+  xlab("Claim Indicator (0 = No Claim, 1 = Claim)") +
+  ylab("Claim Cost") +
+  theme_minimal()
+```
+
+### EDA-Predictor Variable
+
+1.  Market Value of the vehicles in \$10,000's
+
+```{r}
+summary(nova$veh_value)
+
+# Histogram for veh_value
+ggplot(nova, aes(x = veh_value)) + 
+  geom_histogram(fill = "#69b3a2", color = "black", alpha = 0.7, bins = 30) + 
+  ggtitle("Distribution of Vehicle Values") +
+  xlab("Vehicle Value in $10,000's") +
+  ylab("Count") +
+  theme_minimal()
+
+# Scatterplot of claimcst0 vs veh_value
+ggplot(nova, aes(x = veh_value, y = claimcst0)) + 
+  geom_point(alpha = 0.5, color = "#69b3a2") +
+  ggtitle("Relationship between Claim Cost and Vehicle Value") +
+  xlab("Vehicle Value in $10,000's") +
+  ylab("Claim Cost") +
+  theme_minimal() +
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+
+# Calculate claim rate by veh_value
+claim_rate_by_value <- nova %>%
+  group_by(veh_value) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting veh_value against claim rate
+ggplot(claim_rate_by_value, aes(x = veh_value, y = claim_rate)) + 
+  geom_point(color = "#69b3a2", size = 3) + 
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  ggtitle("Relationship between Vehicle Value and Claim Rate") +
+  xlab("Market Value of the vehicles in $10,000's") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()+
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+```
+
+2.  The Basic Unit of Risk Underlying an Insurance Premium
+
+```{r}
+summary(nova$exposure)
+
+# Histogram for exposure
+ggplot(nova, aes(x = exposure)) + 
+  geom_histogram(fill = "#69b3a2", color = "black", alpha = 0.7, bins = 30) + 
+  ggtitle("Distribution of Exposure") +
+  xlab("Exposure") +
+  ylab("Count") +
+  theme_minimal()
+
+# Scatterplot of claimcst0 vs exposure
+ggplot(nova, aes(x = exposure, y = claimcst0)) + 
+  geom_point(alpha = 0.5, color = "#69b3a2") +
+  ggtitle("Relationship between Claim Cost and Exposure") +
+  xlab("Exposure") +
+  ylab("Claim Cost") +
+  theme_minimal() +
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+
+# Binning the exposure variable
+nova$exposure_bins <- cut(nova$exposure, breaks = seq(0, max(nova$exposure, na.rm = TRUE) + 0.1, by = 0.1), include.lowest = TRUE, right = FALSE)
+
+# Calculate claim rate by exposure
+claim_rate_by_exposure <- nova %>%
+  group_by(exposure_bins) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting exposure against claim rate
+ggplot(claim_rate_by_exposure, aes(x = as.numeric(as.character(exposure_bins)), y = claim_rate)) + 
+  geom_point(color = "#69b3a2", size = 3) + 
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  ggtitle("Relationship between Exposure and Claim Rate") +
+  xlab("Exposure (Binned)") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()+
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+```
+
+3.  Type of Vehicles
+
+```{r}
+# Create a table of counts for each vehicle type
+count_vehicle_type <- as.data.frame(table(nova$veh_body))
+count_vehicle_type
+
+# Bar chart for veh_body
+ggplot(nova, aes(x = veh_body)) + 
+  geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Vehicle Types") +
+  xlab("Vehicle Type") +
+  ylab("Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better visibility
+
+# Boxplot of claimcst0 vs veh_body
+ggplot(nova, aes(x = veh_body, y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) +
+  ggtitle("Claim Cost by Vehicle Type") +
+  xlab("Vehicle Type") +
+  ylab("Claim Cost") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better visibility
+
+# Calculate claim rate by veh_body
+claim_rate_by_veh_body <- nova %>%
+  group_by(veh_body) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting veh_body against claim rate
+ggplot(claim_rate_by_veh_body, aes(x = reorder(veh_body, -claim_rate), y = claim_rate)) + 
+  geom_bar(stat = "identity", fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Vehicle Type and Claim Rate") +
+  xlab("Vehicle Type") +
+  ylab("Claim Rate (%)") +
+  theme_minimal() +
+  coord_flip()
+```
+
+4.  Age of vehicles (1=youngest, 4=oldest)
+
+```{r}
+# Create a table of counts for each vehicle age type
+count_vehicle_age <- as.data.frame(table(nova$veh_age))
+count_vehicle_age
+
+# Bar chart for veh_age
+ggplot(nova, aes(x = veh_age)) + 
+  geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Vehicle Age") +
+  xlab("Vehicle Age (1=youngest, 4=oldest)") +
+  ylab("Count") +
+  theme_minimal()
+
+# Boxplot of claimcst0 vs veh_age
+ggplot(nova, aes(x = veh_age, y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) +
+  ggtitle("Claim Cost by Vehicle Age") +
+  xlab("Vehicle Age (1=youngest, 4=oldest)") +
+  ylab("Claim Cost") +
+  theme_minimal()
+
+# Calculate claim rate by veh_age
+claim_rate_by_veh_age <- nova %>%
+  group_by(veh_age) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting veh_age against claim rate
+ggplot(claim_rate_by_veh_age, aes(x = veh_age, y = claim_rate)) + 
+  geom_bar(stat = "identity", fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Age of Vehicles and Claim Rate") +
+  xlab("Age of Vehicles (1=youngest, 4=oldest)") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()
+```
+
+5.  Gender of driver
+
+```{r}
+# Create a table of counts for each gender of driver
+count_vehicle_gender <- as.data.frame(table(nova$gender))
+count_vehicle_gender
+
+# Bar chart for gender distribution
+ggplot(nova, aes(x = gender)) + 
+  geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Male vs. Female Drivers") +
+  xlab("Gender") +
+  ylab("Count") +
+  theme_minimal()
+
+# Descriptive statistics for claimcst0 by gender
+gender_claim_stats <- nova %>%
+  group_by(gender) %>%
+  summarise(mean_claim = mean(claimcst0, na.rm = TRUE),
+            median_claim = median(claimcst0, na.rm = TRUE),
+            sd_claim = sd(claimcst0, na.rm = TRUE))
+
+print(gender_claim_stats)
+
+# Boxplot of claimcst0 by gender
+ggplot(nova, aes(x = gender, y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) +
+  ggtitle("Claim Cost by Gender") +
+  xlab("Gender") +
+  ylab("Claim Cost") +
+  theme_minimal()
+
+# Analyze claim rates between genders
+gender_claim_rate <- nova %>%
+  group_by(gender) %>%
+  summarise(total = n(),
+            claims = sum(clm),
+            claim_rate = claims / total * 100)
+
+print(gender_claim_rate)
+
+# Plotting gender against claim rate
+ggplot(gender_claim_rate, aes(x = gender, y = claim_rate)) + 
+  geom_bar(stat = "identity", fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Gender and Claim Rate") +
+  xlab("Gender") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()
+```
+
+6.  Driving area of residence
+
+```{r}
+# Create a table of counts for each driving area
+count_vehicle_area <- as.data.frame(table(nova$area))
+count_vehicle_area
+
+#distribution of driving areas
+ggplot(nova, aes(x = area)) + 
+  geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Driving Areas") +
+  xlab("Driving Area") +
+  ylab("Count") +
+  theme_minimal()
+
+#relatiionship between driving area and claim cost
+ggplot(nova, aes(x = area, y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Driving Area and Claim Cost") +
+  xlab("Driving Area") +
+  ylab("Claim Cost") +
+  theme_minimal()
+
+#relationship between driving area and claim rate
+claim_rate_by_area <- nova %>%
+  group_by(area) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting
+ggplot(claim_rate_by_area, aes(x = area, y = claim_rate)) + 
+  geom_bar(stat = "identity", fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Driving Area and Claim Rate") +
+  xlab("Driving Area") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()
+```
+
+7.  Driver's age category from young (1) to old (6)
+
+```{r}
+# Create a table of counts for each driver's age category
+count_vehicle_driver_age <- as.data.frame(table(nova$agecat))
+count_vehicle_driver_age
+
+#distribution of age category
+ggplot(nova, aes(x = agecat)) + 
+  geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Driver's Age Categories") +
+  xlab("Driver's Age Category") +
+  ylab("Count") +
+  theme_minimal()
+
+#relationship beteween driver's age and claim cost 
+ggplot(nova, aes(x = agecat, y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Driver's Age Category and Claim Cost") +
+  xlab("Driver's Age Category") +
+  ylab("Claim Cost") +
+  theme_minimal()
+
+#relationship between driver's age and claim rate
+claim_rate_by_age <- nova %>%
+  group_by(agecat) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting
+ggplot(claim_rate_by_age, aes(x = as.factor(agecat), y = claim_rate)) + 
+  geom_bar(stat = "identity", fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Driver's Age Category and Claim Rate") +
+  xlab("Driver's Age Category") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()
+
+```
+
+8 . engine_type - Engine type of vehicles
+
+```{r}
+# Create a table of counts for each engine type category
+count_vehicle_engine<- as.data.frame(table(nova$engine_type))
+count_vehicle_engine
+
+#Bar chart to visualize different engine types and their counts
+ggplot(nova, aes(x = engine_type)) + 
+  geom_bar(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Distribution of Engine Types") +
+  xlab("Engine Type") +
+  ylab("Count") +
+  theme_minimal()
+
+#Relationship between engine type and claim cost
+ggplot(nova, aes(x = engine_type, y = claimcst0)) + 
+  geom_boxplot(fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Engine Type and Claim Cost") +
+  xlab("Engine Type") +
+  ylab("Claim Cost") +
+  theme_minimal()
+
+#Relationship between engine type and claim rate
+claim_rate_by_engine <- nova %>%
+  group_by(engine_type) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting
+ggplot(claim_rate_by_engine, aes(x = engine_type, y = claim_rate)) + 
+  geom_bar(stat = "identity", fill = "#69b3a2", color = "black", alpha = 0.7) + 
+  ggtitle("Relationship between Engine Type and Claim Rate") +
+  xlab("Engine Type") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()
+
+```
+
+9.  max_power - Max horsepower of vehicles
+
+```{r}
+summary(nova$max_power)
+# 1. Histogram for max_power
+ggplot(nova, aes(x = max_power)) + 
+  geom_histogram(fill = "#69b3a2", color = "black", alpha = 0.7, bins = 30) + 
+  ggtitle("Distribution of Maximum Horsepower of Vehicles") +
+  xlab("Max Horsepower") +
+  ylab("Count") +
+  theme_minimal()
+
+# 2. Relationship between max_power and claimcst0
+ggplot(nova, aes(x = max_power, y = claimcst0)) + 
+  geom_point(alpha = 0.6, color = "#69b3a2") + 
+  ggtitle("Relationship between Max Horsepower and Claim Cost") +
+  xlab("Max Horsepower") +
+  ylab("Claim Cost") +
+  theme_minimal()+
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+
+# 3. Relationship between max_power and claim rate
+claim_rate_by_power <- nova %>%
+  group_by(max_power) %>%
+  summarise(total_policies = n(),
+            number_of_claims = sum(clm),
+            claim_rate = number_of_claims / total_policies * 100)
+
+# Plotting the claim rate by max_power
+ggplot(claim_rate_by_power, aes(x = max_power, y = claim_rate)) + 
+  geom_line(color = "#69b3a2", alpha = 0.7) + 
+  ggtitle("Relationship between Max Horsepower and Claim Rate") +
+  xlab("Max Horsepower") +
+  ylab("Claim Rate (%)") +
+  theme_minimal()+
+  geom_smooth(method = "lm", col = "red")  # Adds a linear regression line
+
+```
+
+1.  driving_history_score - Driving score based on past driving history (higher the better)
+
+2.  veh_color - Color of vehicles
+
+3.  marital_status - Marital Status of driver (M = married, S = single)
+
+4.  e_bill - Indicator for paperless billing (0 = no, 1 = yes)
+
+5.  time_of_week_driven - Most frequent driving date of the week (weekdays vs weekend)
+
+6.  time_driven - Most frequent driving time of the day
+
+7.  trm_len - term length (6-month vs 12-month policies)
+
+8.  credit_score - Credit score
+
+9.  high_education_ind - indicator for higher education
+
+### Unique value list
+
+```{r}
+ulst <- lapply(nova, unique)
+ulst
+```
+
+### Decision Tree
+
+```{r}
+# Install the package 
+#install.packages("rpart")
+library(rpart)
+```
+
+```{r}
+fit <- rpart(claimcst0 ~ veh_value + exposure + veh_body+veh_age+gender+ area+agecat+engine_type+max_power+driving_history_score+veh_color+marital_status+e_bill+time_of_week_driven+time_driven+trm_len+credit_score+high_education_ind,  
+           method="class",control =rpart.control(minsplit =1,minbucket=1, cp=0), data = nova) 
+```
+
+```{r}
+# Print model 
+#print(fit) 
+```
+
+```{r}
+# Output to be present as PNG file 
+#png(file = "TreeInsurance.png", width = 600,height = 600) 
+  
+# Plot 
+#plot(fit, uniform = TRUE,main = "Insurance Decision Tree using Regression") 
+#text(fit, use.n = TRUE, cex = .7) 
+  
+# Saving the file 
+#dev.off() 
+```
+
+### Random Forest
+
+```{r}
+library(randomForest)
+library(caret)
+```
+
+```{r}
+rf <- randomForest(claimcst0 ~ veh_value + exposure + veh_body+veh_age+gender+area+agecat+engine_type+max_power+driving_history_score+veh_color+marital_status+e_bill+time_of_week_driven+time_driven+trm_len+credit_score+high_education_ind, data=nova, mtry = 3, importance = TRUE, na.action = na.omit)
+```
+
+```{r}
+rf
+```
+
+```{r}
+
+# Output to be present as PNG file  
+png(file = "randomForestRegression.png") 
+  
+# Plot the error vs the number of trees graph 
+plot(rf) 
+  
+# Saving the file 
+dev.off()
+```
+
+```{r}
+rf_1 <- randomForest(claimcst0 ~ veh_value + exposure + veh_body+veh_age+gender+area+agecat+engine_type+max_power+driving_history_score+marital_status+e_bill+time_of_week_driven+time_driven+trm_len+credit_score+high_education_ind, data=nova, mtry = 3, importance = TRUE, na.action = na.omit)
+```
+
+```{r}
+rf_1
+```
+
+```{r}
+rf_2 <- randomForest(claimcst0 ~ veh_value + exposure + veh_body+veh_age+gender+area+agecat+engine_type+max_power+driving_history_score+marital_status+time_of_week_driven+time_driven+trm_len+credit_score+high_education_ind, data=nova, mtry = 3, importance = TRUE, na.action = na.omit)
+```
+
+```{r}
+rf_2
+```
+
+### Zero inflated poisson regression
+
+```{r}
+library(pscl)
+```
+
+```{r}
+summary(m1 <- zeroinfl(count ~ child + camper | persons, data = nova))
+```
