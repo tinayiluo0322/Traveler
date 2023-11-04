@@ -1,0 +1,79 @@
+---
+title: "Tweedie2"
+format: pdf
+editor: visual
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+library(ggplot2)
+library(stats)
+```
+
+```{r}
+nova <- read_csv("../data/InsNova_data_2023_train.csv",show_col_types = FALSE)
+glimpse(nova)
+```
+
+```{r}
+nova_test <- read_csv("../data/InsNova_data_2023_vh.csv",show_col_types = FALSE)
+glimpse(nova_test)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", 
+                         "veh_color", "marital_status", "time_of_week_driven", "time_driven", 
+                         "numclaims", "e_bill", "trm_len", "high_education_ind", "clm")
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor_test <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type","veh_color", "marital_status", "time_of_week_driven", "time_driven", "e_bill", "trm_len", "high_education_ind")
+
+# Factoring the variables directly in the nova dataframe
+nova_test[variables_to_factor_test] <- lapply(nova_test[variables_to_factor_test], factor)
+```
+
+```{r}
+summary(nova)
+```
+
+```{r}
+summary(nova_test)
+```
+
+```{r}
+model_1 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                agecat + engine_type + max_power + driving_history_score + veh_color + 
+                marital_status + e_bill + time_of_week_driven + time_driven + 
+                trm_len + credit_score + high_education_ind,data =nova, family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_1)
+```
+
+```{r}
+nova_test$Predict <- predict(model_1, newdata = nova_test, type = "response")
+```
+
+```{r}
+submission <- nova_test[, c("id", "Predict")]
+str(submission)
+write.csv(submission, "submission.csv", row.names = FALSE)
+```
