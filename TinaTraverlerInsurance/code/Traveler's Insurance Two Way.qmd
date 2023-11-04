@@ -1,0 +1,332 @@
+---
+title: "Traveler's Insurance Model Trying"
+format: html
+editor: visual
+---
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+```
+
+```{r}
+nova <- read_csv("InsNova_data_2023_train.csv")
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", 
+                         "veh_color", "marital_status", "time_of_week_driven", "time_driven", 
+                         "numclaims", "e_bill", "trm_len", "high_education_ind", "clm")
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+
+```
+
+1.  Poisson Model Assessment (Failed)
+
+```{r}
+# poismod <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                # agecat + engine_type + max_power + driving_history_score + veh_color + 
+                # marital_status + e_bill + time_of_week_driven + time_driven + 
+                # trm_len + credit_score + high_education_ind, 
+               # family = poisson(), data = nova)
+# summary(poismod)
+```
+
+```{r}
+# library(car)
+# vif(poismod)
+```
+
+```{r}
+# cbind (exp (coef (poismod)) , exp (confint (poismod) ) , summary (poismod) $coefficient [, 4])
+```
+
+```{r}
+# Get predictions
+# nova$preds <- predict(poismod, type = "response")
+
+# Now create the plot
+# ggplot(nova, aes(x = veh_value, y = preds, colour = time_of_week_driven)) +
+  # geom_point(aes(y = claimcst0), alpha = .5, position = position_jitter(h = .2)) + # Jittered points for observed values
+  # geom_line(aes(y = preds, group = time_of_week_driven)) + # Lines for predicted values
+  # labs(x = "Vehicle Value", y = "Claim Cost", colour = "Time of Week Driven") +
+  # ggtitle("Predicted and Observed Claim Cost by Vehicle Value") 
+```
+
+```{r}
+# library(AER)
+# dispersiontest(poismod)
+```
+
+```{r}
+library(pscl)
+```
+
+2.  Two-Part Model: the first part predicts whether there is any claim cost (a binary outcome), and the second part predicts the amount of claim cost for the non-zero claims (a continuous outcome)
+
+```{r}
+# View current levels of veh_body
+levels(nova$veh_body)
+
+# Viewing the levels of veh_body where claimcst0 > 0
+levels(subset(nova, claimcst0 > 0)$veh_body)
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+
+# Part 1: Binary logistic regression for the occurrence of any claim cost vs. no cost
+model_part1 <- glm(I(claimcst0 > 0) ~ veh_value + exposure + veh_body + veh_age + gender +
+                     area + agecat + engine_type + max_power + driving_history_score +
+                     veh_color + marital_status + e_bill + time_of_week_driven +
+                     time_driven + trm_len + credit_score + high_education_ind,
+                   family = binomial(link = "logit"), data = nova)
+
+# Check model summary
+summary(model_part1)
+
+```
+
+```{r}
+# Part 2: Gamma regression for the amount of claim cost, only for non-zero observations
+model_part2 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender +
+                     area + agecat + engine_type + max_power + driving_history_score +
+                     veh_color + marital_status + e_bill + time_of_week_driven +
+                     time_driven + trm_len + credit_score + high_education_ind,
+                   family = Gamma(link = "log"), data = nova, subset = claimcst0 > 0)
+
+# Check model summary
+summary(model_part2)
+```
+
+```{r}
+# Remove rows with 'veh_body' level 'CONVT' to get a new dataframe nova2
+nova2 <- nova[!nova$veh_body %in% "CONVT", ]
+
+# Predicting the probability of a positive claim cost from Part 1 on the subset data
+nova2$prob_positive_claim <- predict(model_part1, newdata = nova2, type = "response")
+
+# Determine a threshold for which you consider the claim to be positive
+threshold <- 0.5
+
+# Identify rows where the predicted probability of a claim is above the threshold
+positive_claim_rows <- nova2$prob_positive_claim > threshold
+
+# Predict and back-transform the claim cost using Part 2 of the model for rows above the threshold
+# Initialize the column with zeros
+nova2$predicted_claim_cost <- rep(0, nrow(nova2))
+
+# Apply the prediction only to the filtered subset
+nova2$predicted_claim_cost[positive_claim_rows] <- exp(predict(model_part2, newdata = nova2[positive_claim_rows, ], type = "response"))
+
+# Combined prediction: probability of positive claim * expected positive claim cost on the subset data
+nova2$combined_predicted_claim_cost <- nova2$prob_positive_claim * nova2$predicted_claim_cost
+
+# Inspect the combined predictions on the subset data
+head(nova2[, c("prob_positive_claim", "predicted_claim_cost", "combined_predicted_claim_cost")])
+```
+
+```{r}
+view(nova2)
+```
+
+Cross-validation
+
+```{r}
+library(caret)
+
+# Define the control method: 10-fold cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Convert the outcome to a factor
+nova$claim_ind <- as.factor(nova$claimcst0 > 0)
+
+cv_model_part1 <- train(
+  claim_ind ~ veh_value + exposure + veh_body + veh_age + gender +
+    area + agecat + engine_type + max_power + driving_history_score +
+    veh_color + marital_status + e_bill + time_of_week_driven +
+    time_driven + trm_len + credit_score + high_education_ind,
+  data = nova,
+  method = "glm",
+  family = "binomial",
+  trControl = train_control,
+  preProcess = c("center", "scale"), # Optional: Scale and center predictors
+  tuneLength = 5
+)
+
+# Model training and cross-validation for model_part2
+set.seed(456) # Changing seed for the second model
+cv_model_part2 <- train(
+  claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender +
+    area + agecat + engine_type + max_power + driving_history_score +
+    veh_color + marital_status + e_bill + time_of_week_driven +
+    time_driven + trm_len + credit_score + high_education_ind,
+  data = nova %>% filter(claimcst0 > 0), # Using dplyr to filter for non-zero claims
+  method = "glm",
+  family = Gamma(link = "log"),
+  trControl = train_control,
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+
+# Use the cross-validated models to make predictions on the full dataset
+# Make sure you exclude 'CONVT' as before since the model was not trained on it
+nova_full <- nova %>% filter(!veh_body %in% "CONVT")
+nova_full$prob_positive_claim <- predict(cv_model_part1, nova_full, type = "prob")[,2] # Get the probability of class 1
+nova_full$predicted_claim_cost <- ifelse(nova_full$claimcst0 > 0,
+                                         exp(predict(cv_model_part2, nova_full)),
+                                         0)
+nova_full$combined_predicted_claim_cost <- nova_full$prob_positive_claim * nova_full$predicted_claim_cost
+
+# Calculate the accuracy of the combined predictions
+# For regression tasks, this could be MSE, RMSE, MAE, etc.
+actual <- nova_full$claimcst0
+predictions <- nova_full$combined_predicted_claim_cost
+RMSE <- sqrt(mean((predictions - actual)^2))
+MAE <- mean(abs(predictions - actual))
+
+list(RMSE = RMSE, MAE = MAE)
+
+```
+
+```{r}
+library(caret)
+library(vcd)
+
+# Assuming cv_model_part1 has already been trained as shown in previous steps
+
+# Use the train function's predict method to get the predicted classes
+predictions <- predict(cv_model_part1, nova)
+
+# Create the confusion matrix
+conf_matrix <- confusionMatrix(predictions, nova$claim_ind)
+
+# Print the confusion matrix
+print(conf_matrix)
+
+# Plot the confusion matrix using fourfoldplot if it's a 2x2 matrix
+if(is.matrix(conf_matrix$table) && all(dim(conf_matrix$table) == c(2, 2))) {
+  fourfoldplot(conf_matrix$table, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1)
+} else {
+  print("Confusion matrix is not 2x2. Fourfold plot is not applicable.")
+}
+
+```
+
+```{r}
+library(caret)
+library(vcd)
+
+# Use the train function's predict method to get the predicted classes
+predictions <- predict(cv_model_part1, nova)
+
+# Create the confusion matrix
+conf_matrix <- confusionMatrix(predictions, nova$claim_ind)
+
+# Print the confusion matrix
+print(conf_matrix)
+
+# Plot the confusion matrix using fourfoldplot if it's a 2x2 matrix
+if(is.matrix(conf_matrix$table) && all(dim(conf_matrix$table) == c(2, 2))) {
+  fourfoldplot(conf_matrix$table, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1)
+} else {
+  print("Confusion matrix is not 2x2. Fourfold plot is not applicable.")
+}
+
+```
+
+```{r}
+# Load necessary libraries
+library(caret)
+
+# Convert claim costs to a binary factor (0 = no claim, >0 = claim)
+nova2$actual_claim <- ifelse(nova2$claimcst0 > 0, "Claim", "No_Claim")
+nova2$predicted_claim <- ifelse(nova2$combined_predicted_claim_cost > 0, "Claim", "No_Claim")
+
+# Convert to factors
+nova2$actual_claim <- as.factor(nova2$actual_claim)
+nova2$predicted_claim <- as.factor(nova2$predicted_claim)
+
+# Create a confusion matrix
+conf_matrix <- confusionMatrix(nova2$predicted_claim, nova2$actual_claim)
+
+# Print out the confusion matrix
+print(conf_matrix)
+```
+
+```{r}
+rmse <- sqrt(mean((nova2$combined_predicted_claim_cost - nova2$claimcst0)^2))
+rmse
+```
+
+```{r}
+# Load the necessary library
+library(readr)
+
+#import the real test dataset
+nova_test <- read_csv("InsNova_data_2023_vh.csv")
+
+# Remove rows with 'veh_body' level 'CONVT'
+nova_test_filtered <- nova_test[!nova_test$veh_body %in% "CONVT", ]
+
+# List of variable names to be factored
+variables_to_factor <- c(
+  "veh_body", 
+  "veh_age", 
+  "gender", 
+  "area", 
+  "agecat", 
+  "engine_type", 
+  "veh_color", 
+  "marital_status", 
+  "time_of_week_driven", 
+  "time_driven", 
+  "e_bill", 
+  "trm_len", 
+  "high_education_ind"
+)
+
+# nova is the dataframe used to fit the model
+nova_test_filtered[variables_to_factor] <- lapply(variables_to_factor, function(var) {
+  factor(nova_test_filtered[[var]], levels = levels(nova[[var]]))
+})
+
+# Predicting the probability of a positive claim cost from Part 1 on the filtered data
+nova_test_filtered$prob_positive_claim <- predict(model_part1, newdata = nova_test_filtered, type = "response")
+
+# Determine a threshold for which you consider the claim to be positive
+threshold <- 0.5
+
+# Filter the dataset for rows where the predicted probability of a claim is above the threshold
+positive_claim_rows <- nova_test_filtered$prob_positive_claim > threshold
+
+# Predict the claim cost using Part 2 of the model for rows above the threshold
+nova_test_filtered$predicted_claim_cost <- ifelse(positive_claim_rows,
+                                                  exp(predict(model_part2, newdata = nova_test_filtered[positive_claim_rows, ], type = "response")),
+                                                  0)
+
+# Combined prediction: probability of positive claim * expected positive claim cost on the filtered data
+nova_test_filtered$combined_predicted_claim_cost <- nova_test_filtered$prob_positive_claim * nova_test_filtered$predicted_claim_cost
+
+# Inspect the combined predictions on the filtered data
+head(nova_test_filtered[, c("prob_positive_claim", "predicted_claim_cost", "combined_predicted_claim_cost")])
+```
+
+```{r}
+view(nova_test_filtered)
+```
+

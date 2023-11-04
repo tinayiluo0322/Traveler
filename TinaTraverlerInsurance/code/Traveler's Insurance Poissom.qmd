@@ -1020,20 +1020,31 @@ plot_bar(nova)
 plot_histogram(nova)
 ```
 
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", 
+                         "veh_color", "marital_status", "time_of_week_driven", "time_driven", 
+                         "numclaims", "e_bill", "trm_len", "high_education_ind", "clm")
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+
+```
+
 Poisson Model Assessment (Failed)
 
 ```{r}
-poismod <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
-                agecat + engine_type + max_power + driving_history_score + veh_color + 
-                marital_status + e_bill + time_of_week_driven + time_driven + 
-                trm_len + credit_score + high_education_ind, 
-               family = poisson(), data = nova)
-summary(poismod)
+# poismod <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                # agecat + engine_type + max_power + driving_history_score + veh_color + 
+                # marital_status + e_bill + time_of_week_driven + time_driven + 
+                # trm_len + credit_score + high_education_ind, 
+               # family = poisson(), data = nova)
+# summary(poismod)
 ```
 
 ```{r}
-library(car)
-vif(poismod)
+# library(car)
+# vif(poismod)
 ```
 
 ```{r}
@@ -1042,17 +1053,17 @@ vif(poismod)
 
 ```{r}
 # Get predictions
-nova$preds <- predict(poismod, type = "response")
+# nova$preds <- predict(poismod, type = "response")
 
 # Now create the plot
-ggplot(nova, aes(x = veh_value, y = preds, colour = time_of_week_driven)) +
-  geom_point(aes(y = claimcst0), alpha = .5, position = position_jitter(h = .2)) + # Jittered points for observed values
-  geom_line(aes(y = preds, group = time_of_week_driven)) + # Lines for predicted values
-  labs(x = "Vehicle Value", y = "Claim Cost", colour = "Time of Week Driven") +
-  ggtitle("Predicted and Observed Claim Cost by Vehicle Value") 
+# ggplot(nova, aes(x = veh_value, y = preds, colour = time_of_week_driven)) +
+  # geom_point(aes(y = claimcst0), alpha = .5, position = position_jitter(h = .2)) + # Jittered points for observed values
+  # geom_line(aes(y = preds, group = time_of_week_driven)) + # Lines for predicted values
+  # labs(x = "Vehicle Value", y = "Claim Cost", colour = "Time of Week Driven") +
+  # ggtitle("Predicted and Observed Claim Cost by Vehicle Value") 
 ```
 
 ```{r}
-library(AER)
-dispersiontest(poismod)
+# library(AER)
+# dispersiontest(poismod)
 ```
