@@ -1,0 +1,406 @@
+---
+title: "Tweedie2"
+format: pdf
+editor: visual
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+library(ggplot2)
+library(stats)
+```
+
+```{r}
+nova <- read_csv("InsNova_data_2023_train.csv",show_col_types = FALSE)
+glimpse(nova)
+```
+
+```{r}
+nova_test <- read_csv("InsNova_data_2023_vh.csv",show_col_types = FALSE)
+glimpse(nova_test)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", 
+                         "veh_color", "marital_status", "time_of_week_driven", "time_driven", 
+                         "numclaims", "e_bill", "trm_len", "high_education_ind", "clm")
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor_test <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type","veh_color", "marital_status", "time_of_week_driven", "time_driven", "e_bill", "trm_len", "high_education_ind")
+
+# Factoring the variables directly in the nova dataframe
+nova_test[variables_to_factor_test] <- lapply(nova_test[variables_to_factor_test], factor)
+```
+
+```{r}
+summary(nova)
+```
+
+```{r}
+summary(nova_test)
+```
+
+```{r}
+# Load the package
+library(statmod)
+library(tweedie)
+model_1 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                agecat + engine_type + max_power + driving_history_score + veh_color + 
+                marital_status + e_bill + time_of_week_driven + time_driven + 
+                trm_len + credit_score + high_education_ind,data =nova, family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_1)
+```
+
+```{r}
+# nova_test$Predict <- predict(model_1, newdata = nova_test, type = "response")
+```
+
+Model Assumptions:
+
+1.  Mean-Variance Relationship : Expect the variance to increase with the mean
+
+```{r}
+# Predicted values from the model
+nova$predicted_mean <- predict(model_1, type = "response")
+
+# Calculate residuals
+nova$residuals <- model_1$residuals
+
+# Calculate Pearson residuals, which are standardized
+nova$pearson_residuals <- nova$residuals / sqrt(model_1$weights)
+
+# Plot Pearson residuals vs. predicted means
+plot(nova$predicted_mean, nova$pearson_residuals^2,
+     xlab = "Predicted Mean", ylab = "Squared Pearson Residuals")
+```
+
+```{r}
+# Predicted values from the model
+nova$predicted_mean <- predict(model_1, type = "response")
+
+# Calculate residuals
+nova$residuals <- model_1$residuals
+
+# Calculate Pearson residuals, which are standardized
+nova$pearson_residuals <- nova$residuals / sqrt(residuals(model_1,type="pearson"))
+
+# Plot Pearson residuals vs. predicted means
+plot(nova$predicted_mean, nova$pearson_residuals^2,
+     xlab = "Predicted Mean", ylab = "Squared Pearson Residuals")
+```
+
+Coefficients:
+
+The predicted_mean coefficient is negative and significant, which suggests that as the predicted mean increases, the variance (as indicated by the square of the Pearson residuals) actually decreases. This is contrary to what you'd expect in a Tweedie model, where the variance should increase with the mean (especially when the power parameter p is between 1 and 2).
+
+Residuals:
+
+The residuals of this model are quite large, with a maximum of 86,869, indicating that there are some data points with extremely high variance. Residual Standard Error:
+
+The residual standard error (RSE) is very high (1261), showing that the model does not fit the data very well.
+
+Multiple R-squared:
+
+The R-squared value is very low (approximately 0.3%), indicating that the model explains very little of the variance in the squared Pearson residuals. This implies that the predicted mean does not explain much of the variance in your outcome variable. F-Statistic:
+
+Despite the low R-squared, the F-statistic is significant, indicating that the model is statistically significant and that the predicted mean does have some effect on the variance, albeit a very small one.
+
+Overall, the results suggest that the data may not be following the assumed mean-variance relationship of a Tweedie distribution. This could be due to several reasons, such as the presence of outliers, incorrect model specification, or the data not inherently following a Tweedie distribution.
+
+It might be beneficial to perform further diagnostics, consider transformations, or potentially use a different model that better fits the data.
+
+```{r}
+# Fit a linear model to check the power relationship between mean and variance
+power_model <- lm(pearson_residuals^2 ~ predicted_mean, data = nova)
+
+# Check summary to see if the coefficient of predicted_mean is significantly different from zero
+summary(power_model)
+```
+
+Tweedie transformation to address the mean-variance assumption
+
+```{r}
+# Estimate the power parameter p
+p_estimate <- tweedie.profile(claimcst0 ~ 1, data=nova, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max
+
+# Fit the model with the new estimated power parameter
+model_2 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = nova, 
+                       family = tweedie(var.power = p_estimate, link.power = 0))
+
+# Check the summary of the new model
+summary(model_2)
+```
+
+Now do the model assessment again
+
+```{r}
+# Predicted values from the model
+nova$predicted_mean2 <- predict(model_2, type = "response")
+
+# Calculate residuals
+nova$residuals2 <- model_2$residuals
+
+# Calculate Pearson residuals, which are standardized
+nova$pearson_residuals2 <- nova$residuals2 / sqrt(residuals(model_2,type="pearson"))
+
+# Plot Pearson residuals vs. predicted means
+plot(nova$predicted_mean2, nova$pearson_residuals2^2,
+     xlab = "Predicted Mean", ylab = "Squared Pearson Residuals")
+```
+
+```{r}
+# Fit a linear model to check the power relationship between mean and variance
+power_model2 <- lm(pearson_residuals2^2 ~ predicted_mean2, data = nova)
+
+# Check summary to see if the coefficient of predicted_mean is significantly different from zero
+summary(power_model2)
+```
+
+```{r}
+plot(model_2)
+```
+
+```{r}
+plot(model_2, which = 4)
+```
+
+```{r}
+#Drop 14398
+model_2_filter <- nova %>%
+  filter(row_number() != 14398)
+```
+
+```{r}
+# Estimate the power parameter p
+p_estimate3 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max
+
+# Fit the model with the new estimated power parameter
+model_3 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter, 
+                       family = tweedie(var.power = p_estimate3, link.power = 0))
+
+# Check the summary of the new model
+summary(model_3)
+```
+
+```{r}
+plot(model_3, which = 4)
+```
+
+```{r}
+model_2_filter2 <- model_2_filter %>%
+  filter(row_number() != 16770)
+```
+
+```{r}
+# Estimate the power parameter p
+p_estimate4 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter2, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max  
+
+# Fit the model with the new estimated power parameter
+model_4 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter2, 
+                       family = tweedie(var.power = p_estimate4, link.power = 0))
+
+# Check the summary of the new model
+summary(model_4)
+```
+
+```{r}
+plot(model_4, which=4)
+```
+
+```{r}
+model_2_filter3 <- model_2_filter2 %>%
+  filter(row_number() != 20579)
+```
+
+```{r}
+# Estimate the power parameter p
+p_estimate5 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter3, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max  
+
+# Fit the model with the new estimated power parameter
+model_5 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter3, 
+                       family = tweedie(var.power = p_estimate5, link.power = 0))
+
+# Check the summary of the new model
+summary(model_5)
+```
+
+```{r}
+plot(model_5, which=4)
+```
+
+```{r}
+model_2_filter4 <- model_2_filter3 %>%
+  filter(row_number() != 12534)
+```
+
+```{r}
+# Estimate the power parameter p
+p_estimate6 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter4, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max  
+
+# Fit the model with the new estimated power parameter
+model_6 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter4, 
+                       family = tweedie(var.power = p_estimate6, link.power = 0))
+
+# Check the summary of the new model
+summary(model_6)
+```
+
+```{r}
+plot(model_6, which=4)
+```
+
+```{r}
+model_2_filter5 <- model_2_filter4 %>%
+  filter(row_number() != 17007)
+```
+
+```{r}
+# Estimate the power parameter p
+p_estimate7 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter5, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max  
+
+# Fit the model with the new estimated power parameter
+model_7 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter5, 
+                       family = tweedie(var.power = p_estimate7, link.power = 0))
+
+# Check the summary of the new model
+summary(model_7)
+```
+
+```{r}
+plot(model_7, which=4)
+```
+
+```{r}
+model_2_filter6 <- model_2_filter5 %>%
+  filter(row_number() != 14631)
+```
+
+```{r}
+# Estimate the power parameter p
+p_estimate8 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter6, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max  
+
+# Fit the model with the new estimated power parameter
+model_8 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter6, 
+                       family = tweedie(var.power = p_estimate8, link.power = 0))
+
+# Check the summary of the new model
+summary(model_8)
+```
+
+I'm going to use model 7
+
+```{r}
+# Estimate the power parameter p
+p_estimate7 <- tweedie.profile(claimcst0 ~ 1, data=model_2_filter5, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max  
+
+# Fit the model with the new estimated power parameter
+model_7 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = model_2_filter5, 
+                       family = tweedie(var.power = p_estimate7, link.power = 0))
+
+# Check the summary of the new model
+summary(model_7)
+```
+
+```{r}
+# Predicted values from the model
+model_2_filter5$predicted_mean <- predict(model_7, type = "response")
+
+# Calculate residuals
+model_2_filter5$residuals <- model_7$residuals
+
+# Calculate Pearson residuals, which are standardized
+model_2_filter5$pearson_residuals <- model_2_filter5$residuals / sqrt(model_7$weights)
+
+# Plot Pearson residuals vs. predicted means
+plot(model_2_filter5$predicted_mean, model_2_filter5$pearson_residuals^2,
+     xlab = "Predicted Mean", ylab = "Squared Pearson Residuals")
+```
+
+```{r}
+# Predicted values from the model
+model_2_filter5$predicted_mean <- predict(model_7, type = "response")
+
+# Calculate residuals
+model_2_filter5$residuals <- residuals(model_7)
+
+# Calculate Pearson residuals, which are standardized
+model_2_filter5$pearson_residuals <- model_2_filter5$residuals / sqrt(residuals(model_7, type = "pearson"))
+
+# Plot Pearson residuals vs. predicted means
+plot(model_2_filter5$predicted_mean, model_2_filter5$pearson_residuals^2,
+     xlab = "Predicted Mean", ylab = "Squared Pearson Residuals")
+```
+
+Based on this output, it would seem that the assumption of constant variance of the residuals (homoscedasticity) is not violated in model 7, given the lack of a significant relationship between the squared Pearson residuals and the predicted values.
+
+```{r}
+# Fit a linear model to check the power relationship between mean and variance
+power_model3 <- lm(pearson_residuals^2 ~ predicted_mean, data = model_2_filter5)
+
+# Check summary to see if the coefficient of predicted_mean is significantly different from zero
+summary(power_model3)
+```
+
+Cross Validation between model 1 and model 7
+
+```{r}
+nova_test$Predict <- predict(model_7, newdata = nova_test, type = "response")
+```
+
+```{r}
+submission <- nova_test[, c("id", "Predict")]
+str(submission)
+write.csv(submission, "submission.csv", row.names = FALSE)
+```

@@ -1,0 +1,102 @@
+---
+title: "Tweedietransformed"
+format: html
+editor: visual
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+library(ggplot2)
+library(stats)
+```
+
+```{r}
+nova <- read_csv("InsNova_data_2023_train.csv",show_col_types = FALSE)
+glimpse(nova)
+```
+
+```{r}
+nova_test <- read_csv("InsNova_data_2023_vh.csv",show_col_types = FALSE)
+glimpse(nova_test)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", 
+                         "veh_color", "marital_status", "time_of_week_driven", "time_driven", 
+                         "numclaims", "e_bill", "trm_len", "high_education_ind", "clm")
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor_test <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type","veh_color", "marital_status", "time_of_week_driven", "time_driven", "e_bill", "trm_len", "high_education_ind")
+
+# Factoring the variables directly in the nova dataframe
+nova_test[variables_to_factor_test] <- lapply(nova_test[variables_to_factor_test], factor)
+```
+
+```{r}
+summary(nova)
+```
+
+```{r}
+summary(nova_test)
+```
+
+Tweedie transformation to address the mean-variance assumption
+
+```{r}
+# Estimate the power parameter p
+p_estimate <- tweedie.profile(claimcst0 ~ 1, data=nova, method="series", p.vec=seq(1.1, 1.9, by=0.1))$p.max
+
+print(p_estimate)
+
+# Fit the model with the new estimated power parameter
+model_2 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = nova, 
+                       family = tweedie(var.power = p_estimate, link.power = 0))
+
+# Check the summary of the new model
+summary(model_2)
+```
+
+negative binomial
+
+```{r}
+model_3 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                       agecat + engine_type + max_power + driving_history_score + veh_color + 
+                       marital_status + e_bill + time_of_week_driven + time_driven + 
+                       trm_len + credit_score + high_education_ind,
+                       data = nova, 
+                       family = tweedie(var.power = 1.5, link.power = 0))
+
+# Check the summary of the new model
+summary(model_3)
+```
+
+```{r}
+nova_test$Predict <- predict(model_2, newdata = nova_test, type = "response")
+```
+
+```{r}
+submission <- nova_test[, c("id", "Predict")]
+str(submission)
+write.csv(submission, "submission_tweedietransform.csv", row.names = FALSE)
+```
