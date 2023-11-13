@@ -1,0 +1,296 @@
+---
+title: "Tweedie2"
+format: pdf
+editor: visual
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+library(ggplot2)
+library(stats)
+library(statmod)
+```
+
+```{r}
+nova <- read_csv("InsNova_data_2023_train.csv",show_col_types = FALSE)
+glimpse(nova)
+```
+
+```{r}
+nova_test <- read_csv("InsNova_data_2023_vh.csv",show_col_types = FALSE)
+glimpse(nova_test)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", 
+                         "veh_color", "marital_status", "time_of_week_driven", "time_driven", 
+                         "numclaims", "e_bill", "trm_len", "high_education_ind", "clm")
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+```
+
+```{r}
+#create new dataframe for processed nova dataframe
+nova_processed <- nova
+# Factoring the variables directly in the nova dataframe
+nova_processed[variables_to_factor] <- lapply(nova_processed[variables_to_factor], factor)
+```
+
+```{r}
+plot_bar(nova_processed)
+```
+
+```{r}
+plot_histogram(nova_processed)
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor_test <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type","veh_color", "marital_status", "time_of_week_driven", "time_driven", "e_bill", "trm_len", "high_education_ind")
+
+# Factoring the variables directly in the nova dataframe
+nova_test[variables_to_factor_test] <- lapply(nova_test[variables_to_factor_test], factor)
+```
+
+```{r}
+plot_bar(nova)
+```
+
+```{r}
+summary(nova$veh_body)
+```
+
+```{r}
+# Define the main categories for vehicle body
+main_categories_vehicle <- c('SEDAN', 'HBACK', 'STNWG')
+
+# Apply the categorization
+nova_processed$veh_body <- ifelse(nova_processed$veh_body %in% main_categories_vehicle, 
+                                  nova_processed$veh_body, 
+                                  'Other')
+```
+
+```{r}
+# Convert the result back to a factor
+nova_processed$veh_body <- as.factor(nova_processed$veh_body)
+
+# Now, check the summary
+summary(nova_processed$veh_body)
+```
+
+```{r}
+summary(nova$area)
+```
+
+```{r}
+summary(nova$agecat)
+```
+
+```{r}
+summary(nova$engine_type)
+```
+
+```{r}
+# Define the main category
+main_category_engine <- 'petrol'
+
+# Group other engine types into 'Other'
+nova_processed$engine_type <- ifelse(nova_processed$engine_type == main_category_engine, 
+                                     main_category_engine, 
+                                     'Other')
+```
+
+```{r}
+summary(nova$veh_color)
+```
+
+```{r}
+# Define the main color categories
+main_colors <- c('black', 'white', 'gray')
+
+# Apply the categorization
+nova_processed$veh_color <- ifelse(nova_processed$veh_color %in% main_colors, 
+                                   nova_processed$veh_color, 
+                                   'Other')
+```
+
+```{r}
+summary(nova$time_driven)
+```
+
+```{r}
+# Define the time periods to keep
+main_times <- c('12pm - 6pm', '6am - 12pm')
+
+# Apply the categorization
+nova_processed$time_driven <- ifelse(nova_processed$time_driven %in% main_times, 
+                                     nova_processed$time_driven, 
+                                     'Other')
+```
+
+```{r}
+plot_histogram(nova)
+```
+
+```{r}
+plot_bar(nova_processed)
+```
+
+```{r}
+plot_histogram(nova_processed)
+```
+
+```{r}
+summary(nova)
+```
+
+```{r}
+summary(nova_test)
+```
+
+```{r}
+model_1 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                agecat + engine_type + max_power + driving_history_score + veh_color + 
+                marital_status + e_bill + time_of_week_driven + time_driven + 
+                trm_len + credit_score + high_education_ind,data =nova, family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_1)
+```
+
+```{r}
+model_2 <- glm(claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+                agecat + engine_type + max_power + driving_history_score + veh_color + 
+                marital_status + e_bill + time_of_week_driven + time_driven + 
+                trm_len + credit_score + high_education_ind,data =nova_processed, family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_2)
+```
+
+```{r}
+model_3 <- glm(claimcst0 ~ exposure + gender + 
+                max_power + veh_color + 
+                e_bill + time_driven + 
+                high_education_ind +
+                veh_age * veh_value + # Interaction and main effects for vehicle age and vehicle value
+                agecat * driving_history_score + # Interaction and main effects for driver's age category and driving history score
+                veh_body * engine_type + # Interaction and main effects for vehicle type and engine type
+                area * time_of_week_driven + # Interaction and main effects for area of residence and time of week driven
+                marital_status * agecat + # Interaction and main effects for marital status and age category
+                credit_score * trm_len, # Interaction and main effects for credit score and term length
+              data = nova_processed, 
+              family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_3)
+```
+
+```{r}
+model_4 <- glm(claimcst0 ~ exposure + gender + 
+                max_power + 
+                e_bill + time_driven + 
+                high_education_ind +
+                veh_age * veh_value + # Interaction and main effects for vehicle age and vehicle value
+                agecat * driving_history_score + # Interaction and main effects for driver's age category and driving history score
+                veh_body * engine_type + # Interaction and main effects for vehicle type and engine type
+                area * time_of_week_driven + # Interaction and main effects for area of residence and time of week driven
+                marital_status * agecat + # Interaction and main effects for marital status and age category
+                credit_score * trm_len, # Interaction and main effects for credit score and term length
+              data = nova_processed, 
+              family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_4)
+```
+
+```{r}
+model_5 <- glm(claimcst0 ~ exposure + gender + 
+                max_power + veh_color + 
+                e_bill + time_driven + 
+                high_education_ind +
+                veh_age * veh_value + # Interaction and main effects for vehicle age and vehicle value
+                agecat * driving_history_score + # Interaction and main effects for driver's age category and driving history score
+                veh_body * engine_type + # Interaction and main effects for vehicle type and engine type
+                area * time_of_week_driven + # Interaction and main effects for area of residence and time of week driven
+                marital_status * agecat + # Interaction and main effects for marital status and age category
+                credit_score * trm_len, # Interaction and main effects for credit score and term length
+              data = nova, 
+              family = tweedie(var.power = 1, link.power = 0))
+```
+
+```{r}
+summary(model_5)
+```
+
+```{r}
+library(caret)
+```
+
+```{r}
+#cross validation for model 1
+set.seed(921)  # for reproducibility
+train_control <- trainControl(method = "cv", number = 10)
+mod_full <- train(
+  claimcst0 ~ veh_value + exposure + veh_body + veh_age + gender + area + 
+             agecat + engine_type + max_power + driving_history_score + veh_color + 
+             marital_status + e_bill + time_of_week_driven + time_driven + 
+             trm_len + credit_score + high_education_ind,
+  data = nova, 
+  method = "glm", 
+  family = tweedie(var.power = 1, link.power = 0),
+  trControl = train_control
+)
+
+print(mod_full)
+```
+
+```{r}
+set.seed(921)  # for reproducibility
+train_control <- trainControl(method = "cv", number = 10)
+mod_full_5 <- train(
+  claimcst0 ~ exposure + gender + 
+             max_power + veh_color + 
+             e_bill + time_driven + 
+             high_education_ind +
+             veh_age * veh_value +  # Interaction term
+             agecat * driving_history_score +  # Interaction term
+             veh_body * engine_type +  # Interaction term
+             area * time_of_week_driven +  # Interaction term
+             marital_status * agecat +  # Interaction term
+             credit_score * trm_len,  # Interaction term
+  data = nova, 
+  method = "glm", 
+  family = tweedie(var.power = 1, link.power = 0),
+  trControl = train_control
+)
+
+print(mod_full_5)
+```
+
+```{r}
+nova_test$Predict <- predict(model_5, newdata = nova_test, type = "response")
+```
+
+```{r}
+submission <- nova_test[, c("id", "Predict")]
+str(submission)
+write.csv(submission, "submission_interaction_tweedie.csv", row.names = FALSE)
+```
