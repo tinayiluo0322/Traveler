@@ -1,0 +1,306 @@
+---
+title: "lightgbm_example"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+tweedie_variance_power_values <- seq(1.01, 1.99, by = 0.3)
+print(tweedie_variance_power_values)
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+library(lightgbm)
+library(caret)
+library(ggplot2)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(geosphere)
+library(car)
+library(corrplot)
+library(caret)
+library(knitr)
+library(sjPlot)
+library("ISLR")
+library("SmartEDA")
+library(DataExplorer)
+nova <- read_csv("data/InsNova_data_2023_train.csv")
+```
+
+```{r}
+# List of variable names to be factored
+variables_to_factor <- c(
+    "veh_body", "veh_age", "gender", "area", "agecat", "engine_type",
+    "veh_color", "marital_status", "time_of_week_driven", "time_driven",
+    "numclaims", "e_bill", "trm_len", "high_education_ind", "clm"
+)
+
+# Factoring the variables directly in the nova dataframe
+nova[variables_to_factor] <- lapply(nova[variables_to_factor], factor)
+```
+
+```{r}
+predictor_variables <- c(
+    "veh_value", "exposure", "veh_body", "veh_age", "gender", "area", "agecat", "engine_type", "max_power", "driving_history_score",
+    "veh_color", "marital_status", "e_bill", "time_of_week_driven",
+    "time_driven", "trm_len", "credit_score", "high_education_ind", "claimcst0"
+)
+
+filtered_nova_train <- subset(nova, select = predictor_variables)
+str(filtered_nova_train)
+```
+
+```{r}
+train_x <- filtered_nova_train[, -19]
+train_y <- filtered_nova_train[, 19]
+train_y <- train_y$claimcst0
+categorical_features <- c("veh_body", "veh_age", "gender", "area", "agecat", "engine_type", "veh_color", "marital_status", "e_bill", "time_of_week_driven", "time_driven", "trm_len", "high_education_ind")
+
+# Create lgb.Dataset
+train_data <- lgb.Dataset(data = as.matrix(train_x), label = train_y, categorical_feature = categorical_features)
+```
+
+```{r}
+anyNA(train_x)
+
+# Check for NAs in train_y
+anyNA(train_y)
+```
+
+```{r}
+# Define the modified Gini function
+modified_gini <- function(preds, dtrain) {
+    actual <- get_field(dtrain, "label")
+
+    # Calculate the ranks of predicted claim costs
+    ranks <- rank(preds, ties.method = "first")
+
+    # Numerator part
+    numerator <- sum((2 * ranks - 1) * actual)
+    numerator <- numerator - sum(actual) * (sum(ranks) / length(ranks))
+
+    # Denominator part
+    denominator <- sum(ranks * actual)
+    denominator <- denominator - sum(actual) * ((length(ranks) + 1) / 2)
+
+    # Calculate Gini
+    gini <- numerator / denominator
+
+    # Return the result in the required format
+    result <- list(name = "gini", value = gini, higher_better = TRUE)
+
+    return(result)
+}
+
+
+
+```
+
+```{r}
+library(caret)
+
+labels <- get_field(train_data, "label")
+# print(labels)
+library(caret)
+num_folds <- 5
+folds <- createMultiFolds(labels, k = num_folds, times = 5) # Adjust times as needed
+# print(folds)
+# Define ranges of values for parameters to test
+num_leaves_values <- seq(20, 50, by = 5)
+learning_rate_values <- seq(0.01, 0.5, by = 0.1)
+tweedie_variance_power_values <- seq(1, 2, by = 0.1)
+nrounds_values <- seq(100, 500, by = 50)
+
+print(num_leaves_values)
+```
+
+```{r}
+# Set up initial parameterss
+base_params <- list(
+    objective = "tweedie",
+    metric = "tweedie"
+)
+
+# Define ranges of values for parameters to test
+num_leaves_values <- seq(20, 30, by = 5)
+learning_rate_values <- seq(0.01, 0.15, by = 0.03)
+tweedie_variance_power_values <- seq(1.01, 1.99, by = 0.3)
+
+# Define ranges for lambda_l1 and lambda_l2
+lambda_l1_values <- c(0.01, 0.1, 1, 10)
+lambda_l2_values <- c(0.01, 0.1, 1, 10)
+
+# Define the file path
+file_path <- "tweedie_results.txt"
+
+# Iterate through combinations of parameters
+for (num_leaves in num_leaves_values) {
+    for (learning_rate in learning_rate_values) {
+        for (tweedie_variance_power in tweedie_variance_power_values) {
+            for (lambda_l1 in lambda_l1_values) {
+                for (lambda_l2 in lambda_l2_values) {
+                    # Set the current parameter values in the parameters
+                    current_params <- c(
+                        base_params,
+                        list(
+                            num_leaves = num_leaves,
+                            learning_rate = learning_rate,
+                            tweedie_variance_power = tweedie_variance_power,
+                            lambda_l1 = lambda_l1,
+                            lambda_l2 = lambda_l2
+                        )
+                    )
+                    print(current_params)
+
+                    # Perform cross-validation with the current parameters
+                    cv_results <- lgb.cv(
+                        params = current_params,
+                        data = train_data,
+                        nrounds = 500, # Assuming you want to fix the number of rounds
+                        stratified = TRUE,
+                        folds = folds,
+                        verbose = 0,
+                        eval_freq = 20,
+                        eval = modified_gini
+                    )
+                    best_iter <- cv_results$best_iter
+                    best_score <- cv_results$best_score
+
+                    # Print the results directly
+                    best_eval_score <- cv_results$record_evals[["valid"]]$gini[1L]
+                    # print(best_eval_score)
+                    print(best_iter)
+                    print(best_eval_score$eval[[best_iter]])
+                    best_eval_score_dbl <- best_eval_score$eval[[best_iter]]
+                    cat(sprintf(
+                        "Num Leaves: %d, Learning Rate: %.2f, Tweedie Power: %.2f, Best Iteration: %d, Best Score: %.4f, Eval Score: %.4f, Lambda L1: %.2f, Lambda L2: %.2f\n",
+                        num_leaves, learning_rate, tweedie_variance_power, best_iter, best_score, best_eval_score_dbl, lambda_l1, lambda_l2
+                    ), file = file_path, append = TRUE)
+                }
+            }
+        }
+    }
+}
+
+
+
+```
+
+```{r}
+# Extract parameters from cv_results
+cv_params <- cv_results$params
+
+# Include all parameters from cv_results in the params list
+params <- c(params, cv_params)
+
+print(params)
+print(cv_results)
+```
+
+```{r}
+# Num Leaves: 35, Learning Rate: 0.61, Tweedie Power: 1.81, nrounds: 500, Best Iteration: 1, Best Score: 24.0280
+# Num Leaves: 25, Learning Rate: 0.10, Tweedie Power: 1.91, Best Iteration: 1, Best Score: 19.3998, Eval Score: 61.5470, Lambda L1: 0.01, Lambda L2: 1.00
+
+params <- list(
+    objective = "tweedie",
+    metric = "tweedie",
+    num_leaves = 25,
+    learning_rate = 0.10,
+    tweedie_variance_power = 1.91,
+    lambda_l1 = 0.01,
+    lambda_l2 = 1.00
+)
+
+num_round <- 100
+
+
+
+# Train the model
+model <- lgb.train(params, train_data, num_round)
+```
+
+```{r}
+# model <- lgb.train(params, train_data, num_round)
+```
+
+```{r}
+if (is.numeric(train_y)) {
+    print("train_y is a numeric vector.")
+} else {
+    print("train_y is not a numeric vector.")
+}
+```
+
+```{r}
+nova_test <- read_csv("data/InsNova_data_2023_vh.csv")
+variables_to_factor <- c(
+    "veh_body", "veh_age", "gender", "area", "agecat", "engine_type",
+    "veh_color", "marital_status", "time_of_week_driven", "time_driven", "e_bill", "trm_len", "high_education_ind"
+)
+
+# Factoring the variables directly in the nova dataframe
+nova_test[variables_to_factor] <- lapply(nova_test[variables_to_factor], factor)
+nova_test <- nova_test[, -1, drop = FALSE]
+nova_test <- as.data.frame(nova_test)
+
+# Assuming test_data is a data.frame
+predictions <- predict(model, as.matrix(nova_test))
+```
+
+```{r}
+nova_test <- read_csv("data/InsNova_data_2023_vh.csv")
+nova_test$Predict <- predictions
+submission <- nova_test[, c("id", "Predict")]
+str(submission)
+write.csv(submission, "submission.csv", row.names = FALSE)
+```
+
+```{r}
+# Assuming your CSV file is named 'your_file.csv'
+file_path <- "submission.csv"
+
+# Read the CSV file into a data frame
+data <- read.csv(file_path)
+
+# Check for missing values
+any_na <- any(is.na(data))
+
+if (any_na) {
+    cat("The CSV file contains missing values.")
+} else {
+    cat("The CSV file does not contain any missing values.")
+}
+
+```
+
+```{r}
+
+# azure <- read_csv("azure2.csv")
+# submission <- azure[, c("id", "Predict")]
+# write.csv(submission, "submission.csv", row.names = FALSE)
+```
+
+```{r}
+# sum(is.na(as.matrix(train_x)))
+```
