@@ -78,5 +78,18 @@ A gradient boosting framework that uses tree-based learning algorithms.
 
 Another efficient and scalable implementation of gradient boosting.
 
-  
+## Final Models
+
+### Tweedie with Random Search
+
+Utilizing Python for a Tweedie distribution model with random search optimization.
+
+### CatBoost with Grid Search
+
+Implementing CatBoost algorithm with grid search for hyperparameter tuning in Python.
+
+### CatBoost with Tweedie Grid Search
+
+Combining CatBoost with Tweedie distribution, using grid search for optimization in Python.
+
 
